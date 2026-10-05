@@ -1,33 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
-import '../data/local/note.dart';
 import '../data/offline_exception.dart';
 import '../providers/note_providers.dart';
 import '../widgets/note_form_dialog.dart';
 import '../widgets/note_tile.dart';
-import 'posts_page.dart';
-import 'settings_page.dart';
 
 class NotesPage extends ConsumerWidget {
   const NotesPage({super.key});
 
-  Future<void> _openForm(
-    BuildContext context,
-    WidgetRef ref, [
-    Note? note,
-  ]) async {
+  Future<void> _openForm(BuildContext context, WidgetRef ref) async {
     final result = await showDialog<NoteFormResult>(
       context: context,
-      builder: (_) => NoteFormDialog(initial: note),
+      builder: (_) => const NoteFormDialog(),
     );
-    if (result == null) return; // dibatalkan
-    final actions = ref.read(noteActionsProvider);
-    if (note == null) {
-      await actions.add(result.title, result.body);
-    } else {
-      await actions.update(
-        note.copyWith(title: result.title, body: result.body),
+    if (result == null || !context.mounted) return;
+    try {
+      await ref.read(noteActionsProvider).add(result.title, result.body);
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Gagal menyimpan catatan. Coba lagi.')),
       );
     }
   }
@@ -52,9 +46,7 @@ class NotesPage extends ConsumerWidget {
           IconButton(
             tooltip: 'Posts (cache-first)',
             icon: const Icon(Icons.article_outlined),
-            onPressed: () =>
-                Navigator.of(context)
-                    .push(MaterialPageRoute(builder: (_) => const PostsPage())),
+            onPressed: () => context.push('/posts'),
           ),
           IconButton(
             tooltip: 'Sinkronkan',
@@ -80,8 +72,7 @@ class NotesPage extends ConsumerWidget {
           IconButton(
             tooltip: 'Pengaturan',
             icon: const Icon(Icons.settings_outlined),
-            onPressed: () => Navigator.of(context)
-                .push(MaterialPageRoute(builder: (_) => const SettingsPage())),
+            onPressed: () => context.push('/settings'),
           ),
         ],
       ),
@@ -100,7 +91,7 @@ class NotesPage extends ConsumerWidget {
               final note = notes[index];
               return NoteTile(
                 note: note,
-                onTap: () => _openForm(context, ref, note),
+                onTap: () => context.push('/note/${note.id}'),
                 onDelete: () => ref.read(noteActionsProvider).delete(note.id!),
               );
             },
