@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:week5_offline_notes/data/local/note.dart';
+import 'package:week5_offline_notes/data/offline_exception.dart';
 import 'package:week5_offline_notes/data/repositories/note_repository.dart';
 import 'package:week5_offline_notes/data/sync.dart';
 import 'package:week5_offline_notes/providers/note_providers.dart';
