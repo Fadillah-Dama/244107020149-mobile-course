@@ -1,13 +1,17 @@
+import 'package:campus_notify/core/format.dart';
+
 import 'dart:async';
 
-import 'package:campus_notify/data/token_store.dart';
-import 'package:campus_notify/main.dart';
-import 'package:campus_notify/messaging/notification_route.dart';
-import 'package:campus_notify/providers/auth_provider.dart';
+import 'package:campus_notify/features/auth/data/datasources/secure_token_store.dart';
+import 'package:campus_notify/app/app.dart';
+import 'package:campus_notify/app/routing/app_router.dart';
+import 'package:campus_notify/app/di/providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'support/auth_fakes.dart';
 
 class DelayedTokenStore extends TokenStore {
   final ready = Completer<String?>();
@@ -38,7 +42,16 @@ void main() {
     tester,
   ) async {
     await TokenStore().save(access: 'access', refresh: 'refresh');
-    final container = ProviderContainer();
+    final container = ProviderContainer(
+      overrides: [
+        badgeServiceProvider.overrideWithValue(TestBadges()),
+        notificationRepositoryProvider.overrideWithValue(
+          TestNotificationRepository(),
+        ),
+        deviceSyncProvider.overrideWithValue(TestDeviceSyncService()),
+        authRepositoryProvider.overrideWithValue(TestAuthRepository()),
+      ],
+    );
     addTearDown(container.dispose);
     await container.read(authStateProvider.future);
     await tester.pumpWidget(
@@ -57,7 +70,15 @@ void main() {
   testWidgets('tujuan terminated menunggu pemulihan sesi', (tester) async {
     final store = DelayedTokenStore();
     final container = ProviderContainer(
-      overrides: [tokenStoreProvider.overrideWithValue(store)],
+      overrides: [
+        badgeServiceProvider.overrideWithValue(TestBadges()),
+        notificationRepositoryProvider.overrideWithValue(
+          TestNotificationRepository(),
+        ),
+        deviceSyncProvider.overrideWithValue(TestDeviceSyncService()),
+        tokenStoreProvider.overrideWithValue(store),
+        authRepositoryProvider.overrideWithValue(TestAuthRepository()),
+      ],
     );
     addTearDown(container.dispose);
     // Sama dengan callback getInitialMessage sebelum UI mulai ditampilkan.
@@ -76,7 +97,16 @@ void main() {
   testWidgets('klik tanpa sesi menunggu login lalu membuka tujuan', (
     tester,
   ) async {
-    final container = ProviderContainer();
+    final container = ProviderContainer(
+      overrides: [
+        badgeServiceProvider.overrideWithValue(TestBadges()),
+        notificationRepositoryProvider.overrideWithValue(
+          TestNotificationRepository(),
+        ),
+        deviceSyncProvider.overrideWithValue(TestDeviceSyncService()),
+        authRepositoryProvider.overrideWithValue(TestAuthRepository()),
+      ],
+    );
     addTearDown(container.dispose);
     await container.read(authStateProvider.future);
     await tester.pumpWidget(

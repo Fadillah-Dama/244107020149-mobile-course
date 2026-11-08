@@ -1,126 +1,116 @@
-# Campus Notify - Praktikum 1 sampai 3
+# Campus Notify
 
-Autentikasi mock, penyimpanan token aman, dan notifikasi FCM berdasarkan
-[codelab Minggu 6](https://jti-polinema.github.io/flutter-codelab/06-minggu-6-authentication-security-fcm/index.html#2).
+Aplikasi Flutter untuk autentikasi API Laravel, pengumuman kampus, dan notifikasi Firebase Cloud Messaging. Struktur mengikuti materi pertemuan 11: **feature-first Clean Architecture dan SOLID**.
+
+Penjelasan lengkap, peta setiap file lama, arah dependensi, contoh DI, keputusan AI Challenge, dan hasil pemeriksaan tersedia di [docs/CLEAN_ARCHITECTURE_SOLID.md](docs/CLEAN_ARCHITECTURE_SOLID.md).
 
 ## Fitur
 
-- Login mock: email mengandung `@`, kata sandi minimal 6 karakter.
-- Access token dan refresh token disimpan melalui `flutter_secure_storage`.
-- Riverpod memulihkan status login dari token saat aplikasi dibuka kembali.
-- GoRouter melindungi `/` dan `/pengumuman/:id`; pengguna tanpa sesi diarahkan ke `/login`.
-- Logout menghapus token dan mengembalikan pengguna ke halaman login.
-- Dio menambahkan header Bearer, melakukan refresh dan retry maksimal sekali saat `401`, serta mengakhiri sesi jika refresh gagal atau retry tetap `401`.
-- Backup Android dinonaktifkan untuk menghindari pemulihan data terenkripsi tanpa kunci perangkat asal.
+- Login melalui `POST /api/auth/login`, dengan access/refresh token pada secure storage.
+- Pemulihan sesi, refresh token bersama untuk request bersamaan, dan retry maksimal sekali.
+- Sesi diakhiri ketika refresh ditolak; gangguan jaringan tidak otomatis menghapus token.
+- Registrasi/rotasi token perangkat lewat `POST /api/devices`, pelepasan lewat `DELETE /api/devices`.
+- Logout mencabut sesi server, melepas perangkat, dan membersihkan sesi lokal serta badge. UI melaporkan jika pencabutan server belum terkonfirmasi.
+- Inbox belum dibaca lewat `GET /api/notifications`, detail lewat `GET /api/notifications/{id}`, serta status baca lewat `PATCH /api/notifications/{id}/read`.
+- Banner foreground lokal, notifikasi background, dan navigasi dari terminated. Tujuan klik ditahan selama pemulihan sesi/login.
+- Channel `pengumuman` dengan suara default dan ikon putih; tidak membuat banner background ganda.
+- Langganan topik `pengumuman-kampus` dan tombol persiapan izin/salin token.
+- Jumlah belum dibaca pada menu aplikasi; badge ikon mengikuti kemampuan dan pengaturan launcher HP.
+
+Detail dari API memerlukan `notification_id` pada data pesan. Rute demo `/pengumuman/3` tanpa ID notifikasi tetap memakai contoh pengumuman seperti sebelumnya.
+
+## Struktur dan dependency rule
+
+```text
+lib/
+  main.dart
+  app/                  # Bootstrap, router, widget aplikasi, composition root
+  core/                 # Failure, parser rute, port bersama; Dart murni
+  shared/data/network/  # Dio, konfigurasi API, interceptor, pemetaan error
+  features/
+    auth/
+      domain/           # Entity, kontrak, use case
+      data/             # Model, API, secure storage
+      presentation/     # Halaman, controller, facade provider
+    announcements/
+      domain/           # Entity, kontrak, OpenNotification
+      data/             # Model, API, Firebase, registrasi perangkat, badge
+      presentation/     # Halaman dan state notifikasi
+```
+
+**Presentation -> Domain <- Data**. Domain dan core tidak mengimpor framework/SDK. Entity tidak melakukan mapping JSON. Implementasi konkret dipilih pada `app/di/providers.dart`, bukan dibuat oleh widget.
+
+| Sebelum | Sesudah |
+| --- | --- |
+| `lib/data/` | Model/implementasi pada fitur terkait dan client bersama di `shared/data/network/` |
+| `lib/providers/` | State di presentation; wiring di `app/di/`; alur bisnis di domain/usecases |
+| `lib/pages/` | `features/auth/presentation/pages/` dan `features/announcements/presentation/pages/` |
+| `lib/messaging/` | Implementasi plugin di data announcements; parser di core; state navigasi di app/routing |
+| `lib/main.dart` yang menggabungkan router/provider/UI | Dipisah menjadi main, bootstrap, app, dan routing |
+
+Peta terperinci dan penerapan lima prinsip SOLID ada pada [dokumentasi refaktor](docs/CLEAN_ARCHITECTURE_SOLID.md).
 
 ## Menjalankan
 
-```sh
+```powershell
 flutter pub get
-flutter run
+flutter run --dart-define=API_BASE_URL=http://IP_LAPTOP:8000/api
 ```
 
-Contoh login: `mahasiswa@kampus.ac.id` dengan kata sandi `123456`.
-Login tetap simulasi tanpa membuat akun. Versi saat ini membutuhkan aplikasi
-Android yang terdaftar di Firebase dan `android/app/google-services.json`
-yang sesuai dengan `applicationId`.
+Ganti `IP_LAPTOP` dengan alamat IPv4 laptop. HP dan laptop harus berada pada jaringan yang sama. Dari folder backend Laravel, jalankan:
 
-Login dan refresh masih simulasi sesuai codelab. URL `https://example-campus-api.test`
-di `lib/data/api_client.dart` adalah placeholder; pengujian respons API memakai
-adapter lokal, bukan server sungguhan. Halaman pengumuman memakai data contoh.
+```powershell
+php artisan serve --host=0.0.0.0 --port=8000
+```
 
-## Verifikasi
+Konfigurasi URL default berada pada `lib/shared/data/network/api_config.dart`, yaitu `http://127.0.0.1:8000/api`. Untuk koneksi USB dengan URL default, gunakan `adb reverse tcp:8000 tcp:8000`. Untuk emulator, gunakan alamat host yang sesuai lingkungan Anda. HTTP diizinkan pada manifest debug; gunakan HTTPS pada backend produksi.
 
-```sh
-dart analyze
+Akun contoh seeder Laravel: `mahasiswa@kampus.ac.id`, kata sandi `123456`. Akun harus tersedia pada database backend. Firebase memerlukan `android/app/google-services.json` yang sesuai `applicationId`. Kredensial server Firebase tetap berada di Laravel, bukan aplikasi mobile.
+
+Jalankan ulang aplikasi sepenuhnya setelah perubahan plugin/manifest. Refaktor tidak mengganti endpoint atau skema database.
+
+## Mengirim notifikasi uji
+
+Dari folder `campus_notify_api`:
+
+```powershell
+php artisan campus:notify mahasiswa@kampus.ac.id --title="Uji pengumuman" --body="Kelas Mobile pindah ke Ruang A2" --route="/pengumuman/3"
+```
+
+Command menyimpan notifikasi ke database dan mengirim push ke perangkat pengguna yang terdaftar. Setiap pemanggilan membuat pesan baru. Pesan tetap ada dalam inbox jika pengiriman push gagal.
+
+Untuk pesan topik dari Firebase Console/backend, contoh data rute adalah `route=/pengumuman/3`. Pesan Firebase Console tidak otomatis membuat catatan di database Laravel. Gunakan command Laravel ketika menguji inbox dan status baca yang saling terhubung.
+
+## Verifikasi otomatis
+
+```powershell
+dart format lib test
+dart analyze lib test
 flutter test --no-pub
 ```
 
-Pengujian mencakup operasi
-TokenStore, pemulihan sesi, logout, penolakan login invalid, validasi form,
-guard route, navigasi detail, refresh sukses, batas retry, dan kegagalan refresh.
-Secure storage dalam pengujian menggunakan mock platform.
+Hasil refaktor: **36 test lulus**, tanpa error/warning analyzer, dengan 5 info deprecated pada API token Firebase yang sudah digunakan sebelumnya. Test mencakup use case sukses/gagal dengan repository palsu, aturan dependensi, API melalui adapter lokal, rotasi token, request bersamaan, logout offline, form, route guard, dan navigasi notifikasi. Test tidak menghubungi Laravel/Firebase sungguhan.
 
-Validasi implementasi Praktikum 3: 11 unit/widget test lulus; analisis Dart
-tanpa error/warning dengan 3 info deprecated pada API token codelab.
-Build Android debug dengan target Flutter ARM64 berhasil menggunakan cache lokal:
+Pemeriksaan sterilitas berikut menghasilkan 0 kecocokan:
 
 ```powershell
-.\android\gradlew.bat -p android assembleDebug -Ptarget-platform=android-arm64 --offline --console=plain
+rg -n 'Dio\(|openDatabase|FlutterSecureStorage|SharedPreferences|jsonDecode|FirebaseMessaging|Clipboard\.' lib/features/auth/presentation lib/features/announcements/presentation
+rg -n 'package:(flutter|flutter_riverpod|dio|firebase|sqflite|flutter_secure_storage)' lib/core lib/features/auth/domain lib/features/announcements/domain
+rg -n '(fromJson|toJson|fromMap|toMap)\s*\(' lib/features/auth/domain/entities lib/features/announcements/domain/entities
 ```
 
-Build seluruh target melalui `flutter build apk --debug --no-pub` belum
-terverifikasi karena unduhan artefak engine untuk arsitektur lain menunggu jaringan.
+Test `test/architecture/dependency_rule_test.dart` juga menjaga agar data tidak mengimpor presentation/app, serta domain dan core hanya bergantung pada domain/core atau Dart.
 
-Untuk verifikasi di Android: login, buka pengumuman #3, tutup lalu buka kembali
-aplikasi untuk memeriksa pemulihan sesi, kemudian logout. Pengujian pada perangkat
-fisik/emulator belum dilakukan dalam pengerjaan ini.
+## Pengujian manual setelah refaktor
 
-## Praktikum 3: notifikasi dan deep link
+| Skenario | Hasil yang diharapkan |
+| --- | --- |
+| Login, tutup-buka aplikasi, logout | Sesi pulih dan dihapus sesuai aksi |
+| Foreground | Banner lokal muncul dan klik membuka tujuan |
+| Background melalui tombol Home | Banner sistem muncul dan klik membuka tujuan |
+| Terminated tanpa Force stop | Klik banner menjalankan aplikasi menuju tujuan, melalui login bila perlu |
+| Dua pesan belum dibaca, buka salah satunya | Hanya pesan yang dibuka hilang dari inbox |
+| Koneksi terputus | UI menampilkan pesan aman dan menyediakan percobaan ulang |
+| Badge | Jumlah dalam aplikasi sesuai API; angka/titik ikon mengikuti launcher |
 
-- `lib/messaging/push_service.dart`: background handler top-level dengan
-  `@pragma('vm:entry-point')`, local notification foreground, klik background,
-  dan `getInitialMessage()` untuk peluncuran dari terminated.
-- `main.dart`: inisialisasi service sekali sebelum UI dijalankan dan registrasi
-  handler background. Tujuan klik ditahan selama pemulihan sesi atau login,
-  lalu dikonsumsi sekali oleh GoRouter.
-- Klik local notification juga langsung membuka tujuan. Jika aplikasi sudah
-  mati saat notifikasi lokal diklik, gunakan `getNotificationAppLaunchDetails()`.
-- Channel Android `pengumuman` memakai importance tinggi dan ikon notifikasi
-  putih. Handler background tidak membuat banner tambahan agar tidak ganda.
-- Beranda menyediakan tombol berlangganan/berhenti topik `pengumuman-kampus`.
-  Status di UI menunjukkan hasil aksi terakhir, bukan pembacaan daftar
-  langganan dari Firebase. Setelah membuka ulang halaman, status belum diketahui.
-
-Perubahan API `initialize(settings: ...)` dan `show(id: ..., ...)` mengikuti
-versi `flutter_local_notifications` yang terpasang. API `getToken()` dan
-`onTokenRefresh` tetap mengikuti codelab; SDK saat ini menandainya deprecated.
-Fungsi `initFcmToken` dari Praktikum 2 dipertahankan, tetapi integrasi endpoint
-`POST /devices` belum tersedia. Tombol salin token bukan bukti sinkronisasi backend.
-
-### Payload pengujian
-
-Contoh request FCM HTTP v1 (dikirim dari backend dengan kredensial server):
-
-```json
-{
-  "message": {
-    "topic": "pengumuman-kampus",
-    "notification": {
-      "title": "Jadwal kuliah berubah",
-      "body": "Kelas Mobile pindah ke Ruang A2 jam 13.00"
-    },
-    "data": {
-      "route": "/pengumuman/3",
-      "id": "3"
-    }
-  }
-}
-```
-
-Untuk mengirim ke satu perangkat, ganti `topic` dengan `token` perangkat tujuan.
-Jangan simpan kredensial server di aplikasi Flutter. Pada Firebase Console,
-isi judul dan body, lalu tambahkan pasangan custom data `route=/pengumuman/3`
-dan `id=3` pada opsi tambahan. Pastikan metode pengiriman Console yang dipilih
-menyertakan custom data; bila pesan uji tidak membawa data, gunakan campaign
-yang memuat custom data atau backend HTTP v1. Tanpa `data.route`, tujuan adalah `/`.
-
-### Matriks pengujian manual
-
-Jalankan ulang aplikasi sepenuhnya setelah perubahan plugin/manifest.
-Izinkan notifikasi melalui tombol persiapan, lalu kirim payload gabungan yang
-sama pada ketiga kondisi. Pengiriman ke topik memerlukan tombol Berlangganan.
-
-| State | Cara uji | Hasil yang diharapkan | Hasil aktual / bukti |
-| --- | --- | --- | --- |
-| Foreground | Aplikasi terbuka, kirim pesan, klik banner lokal | Membuka `/pengumuman/3` | Belum diuji; isi setelah uji perangkat |
-| Background | Tekan Home, kirim pesan, klik notifikasi sistem | Membuka `/pengumuman/3` | Belum diuji; isi setelah uji perangkat |
-| Terminated | Tutup dari recent apps, kirim pesan, klik notifikasi | Aplikasi berjalan ke `/pengumuman/3` | Belum diuji; isi setelah uji perangkat |
-
-Jangan gunakan Force stop untuk uji terminated. Beberapa perangkat membatasi
-proses setelah swipe-close; catat perilaku perangkat sebenarnya jika demikian.
-Jika belum login, klik notifikasi harus membuka login dahulu, kemudian menuju
-pengumuman setelah login berhasil. Simpan screenshot banner dan halaman tujuan
-di `screenshots/` tanpa token lengkap. Unit/widget test memverifikasi parsing
-route, tujuan saat pemulihan sesi, login, dan konsumsi tujuan sekali; pengujian
-itu tidak menggantikan bukti penerimaan FCM di perangkat.
+Pengujian HP setelah refaktor, build APK ulang, dan screenshot before/after belum dilakukan. Simpan bukti aktual di `screenshots/` tanpa token lengkap atau kredensial. Matriks ini adalah panduan pengujian, bukan klaim hasil perangkat.

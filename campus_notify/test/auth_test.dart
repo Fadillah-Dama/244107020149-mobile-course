@@ -1,27 +1,17 @@
 import 'dart:typed_data';
 
-import 'package:campus_notify/data/api_client.dart';
-import 'package:campus_notify/data/auth_repository.dart';
-import 'package:campus_notify/data/token_store.dart';
-import 'package:campus_notify/main.dart';
-import 'package:campus_notify/providers/auth_provider.dart';
+import 'package:campus_notify/shared/data/network/api_client.dart';
+import 'package:campus_notify/features/auth/data/datasources/secure_token_store.dart';
+import 'package:campus_notify/app/app.dart';
+import 'package:campus_notify/app/routing/app_router.dart';
+import 'package:campus_notify/app/di/providers.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-class TestAuthRepository extends AuthRepository {
-  int refreshCalls = 0;
-  bool failRefresh = false;
-
-  @override
-  Future<String> refresh(String refreshToken) async {
-    refreshCalls++;
-    if (failRefresh) throw Exception('Refresh ditolak');
-    return 'renewed-access';
-  }
-}
+import 'support/auth_fakes.dart';
 
 class TestAdapter implements HttpClientAdapter {
   TestAdapter(this.statuses);
@@ -68,7 +58,17 @@ void main() {
     () async {
       final store = TokenStore();
       await store.save(access: 'saved-access', refresh: 'saved-refresh');
-      final container = ProviderContainer();
+      final container = ProviderContainer(
+        overrides: [
+          badgeServiceProvider.overrideWithValue(TestBadges()),
+          notificationRepositoryProvider.overrideWithValue(
+            TestNotificationRepository(),
+          ),
+          deviceSyncProvider.overrideWithValue(TestDeviceSyncService()),
+          authRepositoryProvider.overrideWithValue(TestAuthRepository()),
+        ],
+      );
+      container.read(apiClientProvider).httpClientAdapter = TestAdapter([200]);
       addTearDown(container.dispose);
       expect(await container.read(authStateProvider.future), isTrue);
       await container.read(authStateProvider.notifier).logout();
@@ -79,7 +79,16 @@ void main() {
   );
 
   test('login invalid menghasilkan error tanpa menyimpan token', () async {
-    final container = ProviderContainer();
+    final container = ProviderContainer(
+      overrides: [
+        badgeServiceProvider.overrideWithValue(TestBadges()),
+        notificationRepositoryProvider.overrideWithValue(
+          TestNotificationRepository(),
+        ),
+        deviceSyncProvider.overrideWithValue(TestDeviceSyncService()),
+        authRepositoryProvider.overrideWithValue(TestAuthRepository()),
+      ],
+    );
     addTearDown(container.dispose);
     await container.read(authStateProvider.future);
     await container.read(authStateProvider.notifier).login('invalid', '123');
@@ -90,7 +99,17 @@ void main() {
   testWidgets('guard, validasi form, login, detail, dan logout', (
     tester,
   ) async {
-    final container = ProviderContainer();
+    final container = ProviderContainer(
+      overrides: [
+        badgeServiceProvider.overrideWithValue(TestBadges()),
+        notificationRepositoryProvider.overrideWithValue(
+          TestNotificationRepository(),
+        ),
+        deviceSyncProvider.overrideWithValue(TestDeviceSyncService()),
+        authRepositoryProvider.overrideWithValue(TestAuthRepository()),
+      ],
+    );
+    container.read(apiClientProvider).httpClientAdapter = TestAdapter([200]);
     addTearDown(container.dispose);
     await tester.pumpWidget(
       UncontrolledProviderScope(container: container, child: const MyApp()),
@@ -141,6 +160,7 @@ void main() {
       expect(auth.refreshCalls, 1);
       expect(adapter.headers, ['Bearer old-access', 'Bearer renewed-access']);
       expect(await store.readAccess(), 'renewed-access');
+      expect(await store.readRefresh(), 'renewed-refresh');
     },
   );
 
@@ -149,7 +169,14 @@ void main() {
     await store.save(access: 'old-access', refresh: 'refresh');
     final auth = TestAuthRepository();
     final container = ProviderContainer(
-      overrides: [authRepositoryProvider.overrideWithValue(auth)],
+      overrides: [
+        badgeServiceProvider.overrideWithValue(TestBadges()),
+        notificationRepositoryProvider.overrideWithValue(
+          TestNotificationRepository(),
+        ),
+        deviceSyncProvider.overrideWithValue(TestDeviceSyncService()),
+        authRepositoryProvider.overrideWithValue(auth),
+      ],
     );
     addTearDown(container.dispose);
     expect(await container.read(authStateProvider.future), isTrue);
